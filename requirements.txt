@@ -2,3 +2,4 @@ flask
 requests
 datetime
 flask_sqlalchemy
+psycopg2
