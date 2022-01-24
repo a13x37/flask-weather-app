@@ -1,0 +1,4 @@
+flask
+requests
+datetime
+flask_sqlalchemy
