@@ -14,7 +14,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URI']
 app.config['SECRET_KEY'] = os.environ['SECRET_KEY']
-# API_TOKEN = os.environ['API_TOKEN']
+API_TOKEN = os.environ['API_TOKEN']
+
+
 
 
 db = SQLAlchemy(app)
