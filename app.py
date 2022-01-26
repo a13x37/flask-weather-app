@@ -69,7 +69,7 @@ def get_weather_values(data, city=None):
         'temp_unit': units_output(units)['degrees'],
         'city': city
         }
-    if isinstance(data['temp'], float) is True:
+    if isinstance(data['temp'], float | int) is True:
         upd = {
             'temp': round(data['temp'], 1)
             }
