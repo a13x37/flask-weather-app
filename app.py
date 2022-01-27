@@ -142,14 +142,15 @@ def index_get():
     user = Users.query.filter_by(uuid=uid).first()
     if user:
         user_cities = json.loads(user.cities)
+        user.updated_on = datetime.datetime.now()
+        db.session.commit()
     else:
         start_city = json.dumps(["Moscow", ])
         new_user = Users(uuid=uid, cities=start_city)
         user_cities = json.loads(new_user.cities)
         db.session.add(new_user)
+        db.session.commit()
 
-    user.updated_on = datetime.datetime.now()
-    db.session.commit()
     weather_data = []
     # get the weather
     for city in user_cities:
