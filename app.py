@@ -1,16 +1,19 @@
 import requests
 import os
+import uuid
+import json
+import datetime
 
 from utils import wind_arrow, units_output, date_converter
 
-from flask import Flask, redirect, render_template, request, url_for, flash
+from flask import Flask, redirect, render_template, request, session, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.dialects.postgresql import UUID
 
 
 app = Flask(__name__)
 app.config['DEBUG'] = True
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URI']
 app.config['SECRET_KEY'] = os.environ['SECRET_KEY']
@@ -18,13 +21,20 @@ API_TOKEN = os.environ['API_TOKEN']
 
 
 
-
 db = SQLAlchemy(app)
+dt = datetime.datetime.now()
 
 
-class City(db.Model):
+class Users(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), nullable=False)
+    uuid = db.Column(UUID(as_uuid=True), default=uuid.uuid4)
+    cities = db.Column(db.String(500), nullable=False)
+    created_on = db.Column(db.DateTime, default=datetime.datetime.now())
+    updated_on = db.Column(db.DateTime, default=datetime.datetime.now(),
+                           onupdate=datetime.datetime.now())
+    # created_on = db.Column(db.DateTime, server_default=db.func.now())
+    # updated_on = db.Column(db.DateTime, server_default=db.func.now(),
+    #                        server_onupdate=db.func.now())
 
 
 units = "metric"
@@ -110,17 +120,40 @@ def get_weather(
     return weather_data
 
 
+# values for index.html (radiobutton in menu)
 units_metric_checked = "checked"
 units_imperial_checked = None
 
 
+# set session lifetime = 30 days
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+    app.permanent_session_lifetime = datetime.timedelta(days=30)
+
+
 @app.route('/')
 def index_get():
-    cities = City.query.all()
-    weather_data = []
-    for city in cities:
-        r = [get_weather(city.name, units), ]
+    # check the user's open session.  If not, open it
+    if 'uid' not in session:
+        session['uid'] = uuid.uuid4()
+    uid = session['uid']
+    # looking for a user in the database by his UUID, get his list of cities
+    user = Users.query.filter_by(uuid=uid).first()
+    if user:
+        user_cities = json.loads(user.cities)
+    else:
+        start_city = json.dumps(["Moscow", ])
+        new_user = Users(uuid=uid, cities=start_city)
+        user_cities = json.loads(new_user.cities)
+        db.session.add(new_user)
 
+    user.updated_on = datetime.datetime.now()
+    db.session.commit()
+    weather_data = []
+    # get the weather
+    for city in user_cities:
+        r = [get_weather(city, units), ]
         weather_data.append(r)
     return render_template('index.html',
                            weather_data=reversed(weather_data),
@@ -135,6 +168,8 @@ def index_post():
     global units_value
     global units_metric_checked
     global units_imperial_checked
+
+    # check the position of the radio button (index.html -> menu)
     new_units = request.form.get('units_radio')
     if new_units:
         units = new_units
@@ -142,19 +177,20 @@ def index_post():
         units_metric_checked, units_imperial_checked = units_imperial_checked, units_metric_checked
 
     error_msg = ''
+    # check the input of a new city
     new_city = request.form.get('city')
-
     if new_city:
         r = get_weather(new_city)
         if r:
-            existing_city = City.query.filter_by(name=r[0]['city']).first()
-            if existing_city:
-                db.session.delete(existing_city)
-
-            new_city_obj = City(name=r[0]['city'])
-            db.session.add(new_city_obj)
+            existing_city = r[0]['city']
+            user = Users.query.filter_by(uuid=session['uid']).first()
+            user_cities = json.loads(user.cities)
+            if existing_city in user_cities:
+                user_cities.remove(existing_city)
+            user_cities.append(existing_city)
+            user.cities = json.dumps(user_cities)
+            user.updated_on = datetime.datetime.now()
             db.session.commit()
-            # error_msg = "City already exists!"
         else:
             error_msg = ' City not found!'
     if error_msg:
@@ -165,8 +201,16 @@ def index_post():
 
 @app.route('/delete/<name>')
 def delete_city(name):
-    city = City.query.filter_by(name=name).first()
-    db.session.delete(city)
+    ''' 
+    Remove city card.
+    We get a list of users cities from the database,
+    and then remove the city by NAME from the list and return the list to the database. 
+    '''
+    user = Users.query.filter_by(uuid=session['uid']).first()
+    user_cities = json.loads(user.cities)
+    user_cities.remove(name)
+    Users.query.filter_by(uuid=session['uid']).update({'cities': json.dumps(user_cities),
+                                                       'updated_on': datetime.datetime.now()})
     db.session.commit()
     return redirect(url_for('index_get'))
 
@@ -175,7 +219,7 @@ def delete_city(name):
 def about_page():
     return render_template('about.html')
 
-
+# handling possible errors
 @app.errorhandler(500)
 def error_505_page(error):
     return render_template('error_page.html'), 500
