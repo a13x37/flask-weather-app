@@ -12,13 +12,12 @@ from sqlalchemy.dialects.postgresql import UUID
 
 
 app = Flask(__name__)
-app.config['DEBUG'] = True
+# app.config['DEBUG'] = True
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URI']
 app.config['SECRET_KEY'] = os.environ['SECRET_KEY']
 API_TOKEN = os.environ['API_TOKEN']
-
 
 
 db = SQLAlchemy(app)
@@ -32,13 +31,18 @@ class Users(db.Model):
     created_on = db.Column(db.DateTime, default=datetime.datetime.now())
     updated_on = db.Column(db.DateTime, default=datetime.datetime.now(),
                            onupdate=datetime.datetime.now())
-    # created_on = db.Column(db.DateTime, server_default=db.func.now())
-    # updated_on = db.Column(db.DateTime, server_default=db.func.now(),
-    #                        server_onupdate=db.func.now())
+    city = db.Column(db.String(50), nullable=True)
+    country = db.Column(db.String(50), nullable=True)
+    platform = db.Column(db.String(50), nullable=True)
+    browser = db.Column(db.String(50), nullable=True)
+    browser_version = db.Column(db.String(50), nullable=True)
 
 
+# values for index.html (radiobutton in menu)
 units = "metric"
 units_value = units_output(units)
+units_metric_checked = "checked"
+units_imperial_checked = None
 
 
 def get_coordinates(city):
@@ -94,9 +98,12 @@ def get_weather_values(data, city=None):
 
 def get_weather(
         city=None,
-        units='metric'
+        units='metric',
+        coordinates=None
         ):
     url = "https://api.openweathermap.org/data/2.5/onecall"
+    # if city:
+    #     coordinates = get_coordinates(city)
     coordinates = get_coordinates(city)
     weather_data = []
     if coordinates:
@@ -120,9 +127,29 @@ def get_weather(
     return weather_data
 
 
-# values for index.html (radiobutton in menu)
-units_metric_checked = "checked"
-units_imperial_checked = None
+# get user ip and city for first weather card
+def get_start_city():
+    try:
+        ip_address = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+        response = requests.get("https://ipinfo.io/{}/json".format(ip_address))
+        data_json = response.json()
+        location = data_json['loc'].split(',')
+        lat = round(float(location[0]), 2)
+        lon = round(float(location[1]), 2)
+        city = data_json['city']
+        country = data_json['country']
+        user_agent = request.user_agent     # get browser info
+        user_info = {
+            'city': city,
+            'country': country,
+            'platform': user_agent.platform,
+            'browser': user_agent.browser,
+            'browser_version': user_agent.version
+            }
+        return [lat, lon, city, user_info]
+    except Exception as e:
+        print(e)
+        return ['55.75', '37.61', 'Moscow']
 
 
 # set session lifetime = 30 days
@@ -145,8 +172,16 @@ def index_get():
         user.updated_on = datetime.datetime.now()
         db.session.commit()
     else:
-        start_city = json.dumps(["Moscow", ])
-        new_user = Users(uuid=uid, cities=start_city)
+        start = get_start_city()
+        start_city = json.dumps([start[2], ])
+        new_user = Users(uuid=uid,
+                         cities=start_city,
+                         city=start[3].get('city'),
+                         country=start[3].get('country'),
+                         platform=start[3].get('platform'),
+                         browser=start[3].get('browser'),
+                         browser_version=start[3].get('browser_version')
+                         )
         user_cities = json.loads(new_user.cities)
         db.session.add(new_user)
         db.session.commit()
@@ -193,7 +228,7 @@ def index_post():
             user.updated_on = datetime.datetime.now()
             db.session.commit()
         else:
-            error_msg = ' City not found!'
+            error_msg = 'City not found!'
     if error_msg:
         flash(error_msg, 'error')
 
@@ -202,10 +237,10 @@ def index_post():
 
 @app.route('/delete/<name>')
 def delete_city(name):
-    ''' 
+    '''
     Remove city card.
     We get a list of users cities from the database,
-    and then remove the city by NAME from the list and return the list to the database. 
+    and then remove the city by NAME from the list and return the list to the database.
     '''
     user = Users.query.filter_by(uuid=session['uid']).first()
     user_cities = json.loads(user.cities)
@@ -219,6 +254,18 @@ def delete_city(name):
 @app.route('/about')
 def about_page():
     return render_template('about.html')
+
+
+@app.route('/getip')
+def get_ip():
+    ip_addr = request.remote_addr
+    print('request.remote_addr', ip_addr)
+    ip_addr = request.environ['REMOTE_ADDR']
+    print('environ["REMOTE_ADDR"]', ip_addr)
+    ip_addr = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
+    print('get("HTTP_X_FORWARDED_FOR")', ip_addr)
+    return redirect(url_for('index_get'))
+
 
 # handling possible errors
 @app.errorhandler(500)

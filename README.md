@@ -12,7 +12,7 @@ SQLAlchemy is used to work with the database.
 - Search/delete city `done`
 - Units choice `done`
 - 5 days forecast `done`
-- geo ip detection `soon`
+- geo ip detection `done`
 
 ## Setup
 - `pip install -r requirements.txt`
